@@ -1,8 +1,5 @@
 const fetch = require('node-fetch');
 
-const decode = (str) => Buffer.from(str, 'base64').toString('ascii');
-const API_ENDPOINT = process.env.API_ENDPOINT ? decode(process.env.API_ENDPOINT) : 'https://ytapi.apps.mattw.io/v3';
-
 module.exports = async (req, res) => {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,30 +12,47 @@ module.exports = async (req, res) => {
 
     try {
         const { url } = req;
-        const path = url.replace('/api/server', '');
-        const query = url.split('?')[1];
+        const urlParts = url.split('?');
+        const path = urlParts[0].replace('/api/server', '');
+        const query = urlParts[1];
         
         if (!query) {
             return res.status(400).json({ error: 'Missing query parameters' });
         }
         
-        const targetUrl = `${API_ENDPOINT}${path}?${query}`;
+        // Direct API call without third-party proxy
+        const targetUrl = `https://www.googleapis.com/youtube/v3${path}?${query}`;
         
         const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://www.youtube.com/',
-            'Origin': 'https://www.youtube.com'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9'
         };
         
-        const response = await fetch(targetUrl, { headers, timeout: 30000 });
+        console.log('Fetching:', targetUrl);
         
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const response = await fetch(targetUrl, { 
+            headers,
+            timeout: 30000
+        });
+        
+        const text = await response.text();
+        
+        // Check if response is JSON
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (parseError) {
+            console.error('Non-JSON response:', text.substring(0, 200));
+            return res.status(500).json({ 
+                error: 'Invalid API response',
+                details: 'The YouTube API returned non-JSON data. Please use your own YouTube API key.'
+            });
         }
         
-        const data = await response.json();
+        if (!response.ok) {
+            return res.status(response.status).json(data);
+        }
         
         res.setHeader('Cache-Control', 'public, max-age=300');
         res.json(data);
@@ -47,6 +61,7 @@ module.exports = async (req, res) => {
         console.error('API Request failed:', error.message);
         res.status(500).json({ 
             error: 'Service temporarily unavailable',
+            message: 'The third-party API is not accessible. Please use your own YouTube Data API key.',
             code: 'PROXY_ERROR'
         });
     }
